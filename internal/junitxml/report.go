@@ -47,6 +47,7 @@ type JUnitTestCase struct {
 	Time        string            `xml:"time,attr"`
 	SkipMessage *JUnitSkipMessage `xml:"skipped,omitempty"`
 	Failure     *JUnitFailure     `xml:"failure,omitempty"`
+	Properties []JUnitProperty 	  `xml:"properties>property,omitempty"`
 }
 
 // JUnitSkipMessage contains the reason why a testcase was skipped.
@@ -205,12 +206,36 @@ func packageTestCases(pkg *testjson.Package, formatClassname FormatFunc) []JUnit
 }
 
 func newJUnitTestCase(tc testjson.TestCase, formatClassname FormatFunc) JUnitTestCase {
+	props, strippedName := extractRequirementFromName(tc.Test.Name())
 	return JUnitTestCase{
 		Classname: formatClassname(tc.Package),
-		Name:      tc.Test.Name(),
+		Name:      strippedName,
 		Time:      formatDurationAsSeconds(tc.Elapsed),
+		Properties: props,
 	}
 }
+
+func extractRequirementFromName(name string) ( props []JUnitProperty, strippedName string) {
+
+	// Find the opening and closing square brackets in the name
+	openingBracketIndex := strings.Index(name, "[")
+	closingBracketIndex := strings.Index(name, "]")
+
+	if openingBracketIndex != -1 && closingBracketIndex != -1 {
+		// Extract
+		substring := name[openingBracketIndex+1 : closingBracketIndex]
+		strippedName =  strings.ReplaceAll(name, "[" + substring +"]", "")
+		// Split the substring using commas as delimiters and create requirement properties
+		values := strings.Split(substring, ", ")
+		for _, value := range values {
+			property := JUnitProperty{Name: "requirement", Value: value}
+			props = append(props, property)
+		}
+		return props, strippedName
+	}
+	return nil, name
+}
+
 
 func write(out io.Writer, suites JUnitTestSuites) error {
 	doc, err := xml.MarshalIndent(suites, "", "\t")
