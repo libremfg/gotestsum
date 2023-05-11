@@ -228,7 +228,7 @@ func extractRequirementFromName(name string) (props []JUnitProperty, strippedNam
 		// Split the substring using commas as delimiters and create requirement properties
 		values := strings.Split(substring, ",")
 		for _, value := range values {
-			property := JUnitProperty{Name: "requirement", Value: value}
+			property := JUnitProperty{Name: "Requirement", Value: value}
 			props = append(props, property)
 		}
 		return props, strippedName
