@@ -34,7 +34,7 @@ type JUnitTestSuite struct {
 	Failures   int             `xml:"failures,attr"`
 	Time       string          `xml:"time,attr"`
 	Name       string          `xml:"name,attr"`
-	Properties []JUnitProperty `xml:"properties>property,omitempty"`
+	Properties JUnitProperties `xml:"properties,omitempty"`
 	TestCases  []JUnitTestCase
 	Timestamp  string `xml:"timestamp,attr"`
 }
@@ -47,7 +47,7 @@ type JUnitTestCase struct {
 	Time        string            `xml:"time,attr"`
 	SkipMessage *JUnitSkipMessage `xml:"skipped,omitempty"`
 	Failure     *JUnitFailure     `xml:"failure,omitempty"`
-	Properties  []JUnitProperty   `xml:"properties>property,omitempty"`
+	Properties  JUnitProperties   `xml:"properties,omitempty"`
 }
 
 // JUnitSkipMessage contains the reason why a testcase was skipped.
@@ -55,10 +55,16 @@ type JUnitSkipMessage struct {
 	Message string `xml:"message,attr"`
 }
 
+// JUnitProperties is a container for JUnitProperty
+type JUnitProperties struct {
+	Property []JUnitProperty
+}
+
 // JUnitProperty represents a key/value pair used to define properties.
 type JUnitProperty struct {
-	Name  string `xml:"name,attr"`
-	Value string `xml:"value,attr"`
+	XMLName xml.Name `xml:"property,omitempty"`
+	Name    string   `xml:"name,attr"`
+	Value   string   `xml:"value,attr"`
 }
 
 // JUnitFailure contains data related to a failed test.
@@ -109,11 +115,12 @@ func generate(exec *testjson.Execution, cfg Config) JUnitTestSuites {
 		if cfg.HideEmptyPackages && pkg.IsEmpty() {
 			continue
 		}
+		properties := JUnitProperties{packageProperties(version)}
 		junitpkg := JUnitTestSuite{
 			Name:       cfg.FormatTestSuiteName(pkgname),
 			Tests:      pkg.Total,
 			Time:       formatDurationAsSeconds(pkg.Elapsed()),
-			Properties: packageProperties(version),
+			Properties: properties,
 			TestCases:  packageTestCases(pkg, cfg.FormatTestCaseClassname),
 			Failures:   len(pkg.Failed),
 			Timestamp:  cfg.customTimestamp,
@@ -211,7 +218,7 @@ func newJUnitTestCase(tc testjson.TestCase, formatClassname FormatFunc) JUnitTes
 		Classname:  formatClassname(tc.Package),
 		Name:       strippedName,
 		Time:       formatDurationAsSeconds(tc.Elapsed),
-		Properties: props,
+		Properties: JUnitProperties{props},
 	}
 }
 
@@ -227,13 +234,45 @@ func extractRequirementFromName(name string) (props []JUnitProperty, strippedNam
 		strippedName = strings.ReplaceAll(name, "["+substring+"]", "")
 		// Split the substring using commas as delimiters and create requirement properties
 		values := strings.Split(substring, ",")
-		for _, value := range values {
-			property := JUnitProperty{Name: "Requirement", Value: value}
+		if len(values) == 1 {
+			property := JUnitProperty{Name: "Requirement", Value: values[0]}
 			props = append(props, property)
+			return props, strippedName
+		} else {
+			var value string
+			for i, v := range values {
+				if i == 0 {
+					value = v
+				} else {
+					value = value + "," + v
+				}
+			}
+			property := JUnitProperty{Name: "Requirements", Value: value}
+			props = append(props, property)
+			return props, strippedName
 		}
-		return props, strippedName
 	}
 	return nil, name
+}
+
+// Marshals the JUnitProperties into XML. Returns nil if no properties are set,
+// allowing the omitempty xml tag to function correctly.
+func (prop JUnitProperties) MarshalXML(e *xml.Encoder, start xml.StartElement) (err error) {
+	if len(prop.Property) == 0 {
+		return nil
+	}
+
+	err = e.EncodeToken(start)
+	if err != nil {
+		return
+	}
+	err = e.Encode(prop.Property)
+	if err != nil {
+		return
+	}
+	return e.EncodeToken(xml.EndElement{
+		Name: start.Name,
+	})
 }
 
 func write(out io.Writer, suites JUnitTestSuites) error {
